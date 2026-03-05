@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Greyhound Tactical Maneuver Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0f172a; }
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            margin-top: -6px;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #334155;
+            border-radius: 2px;
+        }
+        .highlight-card {
+            transition: all 0.3s ease;
+        }
+        .active-step {
+            border-left: 4px solid #38bdf8;
+            background-color: rgba(56, 189, 248, 0.1);
+        }
+    </style>
+</head>
+<body class="text-slate-200 flex flex-col md:flex-row h-screen font-sans">
+
+    <!-- Canvas Container -->
+    <div class="w-full md:w-2/3 h-1/2 md:h-full relative flex flex-col">
+        <canvas id="simCanvas" class="w-full h-full bg-slate-900"></canvas>
+        
+        <!-- Overlay Controls -->
+        <div class="absolute bottom-4 left-4 right-4 bg-slate-800/90 backdrop-blur border border-slate-700 p-4 rounded-xl flex items-center gap-4 shadow-2xl">
+            <button id="playBtn" class="bg-sky-500 hover:bg-sky-400 text-slate-900 font-bold p-3 rounded-full transition-colors flex-shrink-0">
+                <svg id="playIcon" class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4l12 6-12 6z"></path></svg>
+                <svg id="pauseIcon" class="w-6 h-6 hidden" fill="currentColor" viewBox="0 0 20 20"><path d="M5 4h3v12H5V4zm7 0h3v12h-3V4z"></path></svg>
+            </button>
+            <button id="resetBtn" class="bg-slate-700 hover:bg-slate-600 text-white font-bold p-3 rounded-full transition-colors flex-shrink-0">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+            </button>
+            
+            <div class="flex-grow flex flex-col gap-1">
+                <div class="flex justify-between text-xs text-slate-400 font-semibold uppercase tracking-wider">
+                    <span>Timeline</span>
+                    <span id="timeDisplay">00:00</span>
+                </div>
+                <input type="range" id="timeline" min="0" max="600" value="0" class="w-full">
+            </div>
+        </div>
+    </div>
+
+    <!-- Explanation Panel -->
+    <div class="w-full md:w-1/3 h-1/2 md:h-full bg-slate-800 border-l border-slate-700 overflow-y-auto p-6 flex flex-col gap-4">
+        <div>
+            <h1 class="text-2xl font-bold text-white mb-2">The "Greyhound" Maneuver</h1>
+            <p class="text-sm text-slate-400">Tactical breakdown of the 270° intercept.</p>
+        </div>
+
+        <div id="step-0" class="highlight-card p-4 rounded-lg bg-slate-800 border border-slate-700 active-step">
+            <h3 class="font-bold text-sky-400 mb-1">1. The Screen</h3>
+            <p class="text-sm text-slate-300">Greyhound is traveling in front of the convoy, screening for U-boats. A U-boat is detected dead ahead, attempting to outrun them.</p>
+        </div>
+
+        <div id="step-1" class="highlight-card p-4 rounded-lg bg-slate-800 border border-slate-700">
+            <h3 class="font-bold text-sky-400 mb-1">2. U-Boat Evades</h3>
+            <p class="text-sm text-slate-300">The U-boat initiates a hard left turn, aiming to loop back toward the vulnerable convoy.</p>
+        </div>
+
+        <div id="step-2" class="highlight-card p-4 rounded-lg bg-slate-800 border border-slate-700">
+            <h3 class="font-bold text-sky-400 mb-1">3. The 270° Right Turn</h3>
+            <p class="text-sm text-slate-300">Instead of chasing the U-boat into its turn (which would leave Greyhound trailing due to a larger turning radius and high momentum), Hanks orders a massive 265° sweeping turn to the right.</p>
+        </div>
+
+        <div id="step-3" class="highlight-card p-4 rounded-lg bg-slate-800 border border-slate-700">
+            <h3 class="font-bold text-sky-400 mb-1">4. The Intercept Angle</h3>
+            <p class="text-sm text-slate-300">This radical turn achieves a crucial tactical advantage: it completely changes the approach angle. Greyhound is now bearing down on the U-boat perpendicular to its path.</p>
+        </div>
+
+        <div id="step-4" class="highlight-card p-4 rounded-lg bg-slate-800 border border-slate-700">
+            <h3 class="font-bold text-sky-400 mb-1">5. The Kill Zone</h3>
+            <p class="text-sm text-slate-300">From Greyhound's perspective, the U-boat is crossing left-to-right across their bow. Because of Greyhound's closing speed, the U-boat cannot evade. Greyhound drives directly over the top, dropping depth charges exactly across the submarine's trajectory.</p>
+        </div>
+    </div>
+
+    <script>
+        // --- Geometry Engine for Ships ---
+        class VehiclePath {
+            constructor(startX, startY, startHeading) {
+                this.x = startX;
+                this.y = startY;
+                this.heading = startHeading; // radians. 0 is Right, -PI/2 is Up.
+                this.points = [];
+                this.addPoint();
+            }
+            
+            addPoint() {
+                this.points.push({x: this.x, y: this.y, heading: this.heading});
+            }
+            
+            drive(distance) {
+                const steps = Math.floor(distance); // 1 point per pixel
+                for(let i=1; i<=steps; i++) {
+                    this.x += (Math.cos(this.heading) * distance) / steps;
+                    this.y += (Math.sin(this.heading) * distance) / steps;
+                    this.addPoint();
+                }
+            }
+            
+            turn(radius, degrees) {
+                const rads = degrees * Math.PI / 180;
+                const arcLen = Math.abs(degrees) / 360 * 2 * Math.PI * radius;
+                const steps = Math.floor(arcLen); // 1 point per pixel
+                const turnDir = degrees > 0 ? 1 : -1;
+
+                // Center of the turning circle
+                const cx = this.x + Math.cos(this.heading + turnDir * Math.PI/2) * radius;
+                const cy = this.y + Math.sin(this.heading + turnDir * Math.PI/2) * radius;
+
+                const startAngle = this.heading - turnDir * Math.PI/2;
+                
+                for(let i=1; i<=steps; i++) {
+                    const fraction = i / steps;
+                    const currentAngle = startAngle + turnDir * (Math.abs(rads) * fraction);
+                    this.x = cx + Math.cos(currentAngle) * radius;
+                    this.y = cy + Math.sin(currentAngle) * radius;
+                    this.heading = startAngle + turnDir * (Math.abs(rads) * fraction) + turnDir * Math.PI/2;
+                    this.addPoint();
+                }
+            }
+        }
+
+        // --- Setup Simulation Data ---
+        // U-boat Path Generation
+        const uboat = new VehiclePath(350, 600, -Math.PI/2);
+        uboat.drive(200); // Drives straight North to Y=400
+        uboat.turn(50, -90); // Hard left turn (radius 50)
+        uboat.drive(250); // Escapes West
+
+        // Greyhound Path Generation
+        const greyhound = new VehiclePath(350, 750, -Math.PI/2); // Starts behind U-boat
+        greyhound.drive(550); // Drives fast North to Y=200
+        greyhound.turn(120, 265); // Sweeping 265 degree right turn
+        greyhound.drive(400); // Intersects the U-boat's path
+
+        // Speed Ratio Calculation
+        // Greyhound travels ~1462 units. Uboat travels ~454 units to intercept.
+        // To meet exactly at the crossing, Greyhound's index advances faster.
+        const speedRatio = 3.21; 
+
+        // --- Canvas Rendering System ---
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        const timeline = document.getElementById('timeline');
+        
+        let simTime = 0; // 0 to max frames
+        const maxTime = 600; 
+        let isPlaying = false;
+        let animationFrameId;
+
+        function resizeCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+            draw();
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        function drawShip(x, y, heading, type) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(heading);
+
+            if (type === 'greyhound') {
+                // Destroyer shape
+                ctx.fillStyle = '#38bdf8';
+                ctx.shadowColor = '#0284c7';
+                ctx.shadowBlur = 10;
+                ctx.beginPath();
+                ctx.moveTo(25, 0); // bow
+                ctx.lineTo(-20, 6);
+                ctx.lineTo(-25, 4);
+                ctx.lineTo(-25, -4);
+                ctx.lineTo(-20, -6);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Wake
+                ctx.fillStyle = 'rgba(255,255,255,0.4)';
+                ctx.beginPath();
+                ctx.moveTo(-25, 4);
+                ctx.lineTo(-40, 10);
+                ctx.lineTo(-40, -10);
+                ctx.lineTo(-25, -4);
+                ctx.fill();
+            } else {
+                // U-boat shape
+                ctx.fillStyle = '#ef4444';
+                ctx.shadowColor = '#b91c1c';
+                ctx.shadowBlur = 10;
+                ctx.beginPath();
+                ctx.moveTo(15, 0);
+                ctx.lineTo(-15, 3);
+                ctx.lineTo(-15, -3);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Submarine conning tower
+                ctx.fillStyle = '#7f1d1d';
+                ctx.fillRect(-2, -2, 6, 4);
+            }
+            ctx.restore();
+        }
+
+        function drawPath(points, color) {
+            if (points.length === 0) return;
+            ctx.beginPath();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 6]);
+            ctx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i += 5) { // Skip points to optimize drawing
+                ctx.lineTo(points[i].x, points[i].y);
+            }
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        function drawGrid(scale) {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+            ctx.lineWidth = 1;
+            for(let x = 0; x <= 800; x += 50) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 800); ctx.stroke();
+            }
+            for(let y = 0; y <= 800; y += 50) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(800, y); ctx.stroke();
+            }
+        }
+
+        let depthCharges = [];
+        function addDepthCharge(x, y) {
+            depthCharges.push({ x, y, radius: 0, opacity: 1 });
+        }
+
+        function draw() {
+            // Setup responsive scaling (simulation native resolution is 800x800)
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            const scale = Math.min(canvas.width / 800, canvas.height / 800);
+            ctx.translate((canvas.width - 800 * scale) / 2, (canvas.height - 800 * scale) / 2);
+            ctx.scale(scale, scale);
+
+            drawGrid();
+
+            // Draw full dotted paths
+            drawPath(uboat.points, 'rgba(239, 68, 68, 0.4)');
+            drawPath(greyhound.points, 'rgba(56, 189, 248, 0.4)');
+
+            // Calculate current indices based on simulation time
+            const uIdx = Math.min(Math.floor(simTime), uboat.points.length - 1);
+            const gIdx = Math.min(Math.floor(simTime * speedRatio), greyhound.points.length - 1);
+
+            const uPos = uboat.points[uIdx];
+            const gPos = greyhound.points[gIdx];
+
+            // Draw Depth Charges (Kill Zone)
+            if (simTime > 450 && simTime < 455 && isPlaying) {
+                // Drop a charge every few frames near intercept
+                if (Math.floor(simTime) % 2 === 0) addDepthCharge(gPos.x, gPos.y);
+            }
+
+            for (let i = depthCharges.length - 1; i >= 0; i--) {
+                let dc = depthCharges[i];
+                ctx.beginPath();
+                ctx.arc(dc.x, dc.y, dc.radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(255, 255, 255, ${dc.opacity})`;
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                ctx.fillStyle = `rgba(56, 189, 248, ${dc.opacity * 0.3})`;
+                ctx.fill();
+                
+                if(isPlaying) {
+                    dc.radius += 1.5;
+                    dc.opacity -= 0.02;
+                    if (dc.opacity <= 0) depthCharges.splice(i, 1);
+                }
+            }
+
+            // Draw current ship positions
+            if (uPos) drawShip(uPos.x, uPos.y, uPos.heading, 'uboat');
+            if (gPos) drawShip(gPos.x, gPos.y, gPos.heading, 'greyhound');
+
+            // Draw Labels
+            ctx.fillStyle = 'white';
+            ctx.font = '14px sans-serif';
+            if (uPos) { ctx.fillText('U-Boat', uPos.x + 20, uPos.y + 20); }
+            if (gPos) { ctx.fillText('Greyhound', gPos.x + 30, gPos.y + 20); }
+
+            ctx.restore();
+            updateUI();
+        }
+
+        // --- Game Loop & Controls ---
+        function loop() {
+            if (isPlaying && simTime < maxTime) {
+                simTime += 1;
+                timeline.value = simTime;
+            } else if (simTime >= maxTime) {
+                isPlaying = false;
+                document.getElementById('playIcon').classList.remove('hidden');
+                document.getElementById('pauseIcon').classList.add('hidden');
+            }
+            draw();
+            animationFrameId = requestAnimationFrame(loop);
+        }
+
+        function updateUI() {
+            document.getElementById('timeDisplay').innerText = `T+${Math.floor(simTime)}s`;
+            
+            // Highlight steps
+            document.querySelectorAll('.highlight-card').forEach(el => el.classList.remove('active-step'));
+            if (simTime < 150) document.getElementById('step-0').classList.add('active-step');
+            else if (simTime < 250) document.getElementById('step-1').classList.add('active-step');
+            else if (simTime < 350) document.getElementById('step-2').classList.add('active-step');
+            else if (simTime < 440) document.getElementById('step-3').classList.add('active-step');
+            else document.getElementById('step-4').classList.add('active-step');
+        }
+
+        // Event Listeners
+        document.getElementById('playBtn').addEventListener('click', () => {
+            if (simTime >= maxTime) simTime = 0;
+            isPlaying = !isPlaying;
+            document.getElementById('playIcon').classList.toggle('hidden', isPlaying);
+            document.getElementById('pauseIcon').classList.toggle('hidden', !isPlaying);
+        });
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            simTime = 0;
+            timeline.value = 0;
+            depthCharges = [];
+            isPlaying = false;
+            document.getElementById('playIcon').classList.remove('hidden');
+            document.getElementById('pauseIcon').classList.add('hidden');
+            draw();
+        });
+
+        timeline.addEventListener('input', (e) => {
+            simTime = parseInt(e.target.value);
+            depthCharges = []; // Clear visual effects when scrubbing
+            draw();
+        });
+
+        // Init
+        resizeCanvas();
+        loop();
+    </script>
+</body>
+</html>
